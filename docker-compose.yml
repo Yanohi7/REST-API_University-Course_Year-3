@@ -13,7 +13,6 @@ services:
       - "5555:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
-
   api:
     build: .
     container_name: library_api_container
@@ -24,6 +23,8 @@ services:
       - "8000:8000"
     volumes:
       - .:/app
+    environment:
+      DATABASE_URL: postgresql+psycopg2://postgres:123456@db:5432/library_db
 
 volumes:
   postgres_data:
