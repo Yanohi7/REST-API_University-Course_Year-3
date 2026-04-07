@@ -1,6 +1,6 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from typing import Optional
-from pydantic import ConfigDict
+
 
 class BookCreate(BaseModel):
     title: str = Field(..., min_length=1)
@@ -13,3 +13,9 @@ class BookCreate(BaseModel):
 class BookResponse(BookCreate):
     id: int
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaginatedBookResponse(BaseModel):
+    items: list[BookResponse]
+    next_cursor: Optional[str] = None
+    has_more: bool

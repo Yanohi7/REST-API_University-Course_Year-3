@@ -1,64 +1,114 @@
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.openapi.models import Response
+from fastapi import APIRouter, HTTPException, Depends, Response
 from sqlalchemy.orm import Session
-from database import get_db
-from schemas.book import BookCreate, BookResponse
-from services import book_service
-from fastapi import Response
-
 from fastapi.responses import HTMLResponse
-import math
+
+from database import get_db
+from schemas.book import BookCreate, BookResponse, PaginatedBookResponse
+from services import book_service
 
 router = APIRouter(prefix="/books", tags=["Books"])
 
 
-@router.get("/", response_model=list[BookResponse])
+@router.get("/", response_model=PaginatedBookResponse)
 def get_books(
     author: str = None,
     status: str = None,
     sort: str = None,
-    offset = 0,
-    limit=10,
-    db: Session = Depends(get_db)
-):
-    return book_service.list_books(db, author, status, sort, offset, limit)
-
-@router.get("/pretty", response_class=HTMLResponse)
-def get_books_pretty(
-    page: int = 1,
+    cursor: str = None,
     limit: int = 10,
     db: Session = Depends(get_db)
 ):
-    page = max(1, page)
+    limit = min(50, limit)
+    return book_service.list_books(db, author, status, sort, cursor, limit)
+
+
+@router.get("/pretty", response_class=HTMLResponse)
+def get_books_pretty(
+    author: str = None,
+    status: str = None,
+    sort: str = None,
+    cursor: str = None,
+    limit: int = 10,
+    db: Session = Depends(get_db)
+):
     limit = min(50, limit)
 
-    total = book_service.get_total_books(db)
+    data = book_service.list_books(
+        db,
+        author=author,
+        status=status,
+        sort=sort,
+        cursor=cursor,
+        limit=limit
+    )
 
-    total_pages = math.ceil(total / limit)
+    books = data["items"]
+    next_cursor = data["next_cursor"]
+    has_more = data["has_more"]
 
-    if page > total_pages:
-        page = total_pages if total_pages > 0 else 1
+    html = "<h1>Бібліотека (Cursor Pagination)</h1>"
 
-    offset = (page - 1) * limit
+    html += """
+    <form method="get" action="/books/pretty">
+        <label>Автор:</label>
+        <input type="text" name="author" value="{author}"><br><br>
 
-    books = book_service.list_books(db, offset=offset, limit=limit)
+        <label>Статус:</label>
+        <input type="text" name="status" value="{status}"><br><br>
 
-    html = f"<h1>Page {page} / {total_pages}</h1><ul>"
+        <label>Сортування:</label>
+        <select name="sort">
+            <option value="" {sort_default}>За замовчуванням (id)</option>
+            <option value="title" {sort_title}>За назвою</option>
+            <option value="year" {sort_year}>За роком</option>
+        </select><br><br>
 
-    for b in books:
-        html += f"<li>{b.id} — {b.title} ({b.author})</li>"
+        <label>Ліміт:</label>
+        <input type="number" name="limit" value="{limit}" min="1" max="50"><br><br>
 
-    html += "</ul>"
+        <button type="submit">Застосувати</button>
+    </form>
+    <hr>
+    """.format(
+        author=author or "",
+        status=status or "",
+        limit=limit,
+        sort_default="selected" if not sort else "",
+        sort_title="selected" if sort == "title" else "",
+        sort_year="selected" if sort == "year" else ""
+    )
 
-    html += "<br><br>"
+    html += "<ul>"
 
-    if page > 1:
-        html += f'<a href="/books/pretty?page={page - 1}&limit={limit}">⬅ Prev</a> '
+    if not books:
+        html += "<li>Книг немає або ви дійшли до кінця.</li>"
+    else:
+        for b in books:
+            html += f"<li><b>ID: {b.id}</b> — {b.title} ({b.author}) - {b.year} - {b.status}</li>"
 
-    if page < total_pages:
-        html += f'<a href="/books/pretty?page={page + 1}&limit={limit}">Next ➡</a>'
+    html += "</ul><br>"
+
+    base_params = []
+    if author:
+        base_params.append(f"author={author}")
+    if status:
+        base_params.append(f"status={status}")
+    if sort:
+        base_params.append(f"sort={sort}")
+    base_params.append(f"limit={limit}")
+
+    base_query = "&".join(base_params)
+
+    html += '<a href="/books/pretty">🏠 На початок</a><br><br>'
+
+    if has_more and next_cursor:
+        next_url = f"/books/pretty?{base_query}&cursor={next_cursor}"
+        html += f'<a href="{next_url}">Далі ➡</a>'
+    else:
+        html += "<span>Це остання сторінка</span>"
 
     return html
+
 
 @router.get("/{book_id}", response_model=BookResponse)
 def get_book(book_id: int, db: Session = Depends(get_db)):
@@ -73,10 +123,9 @@ def add_book(book: BookCreate, db: Session = Depends(get_db)):
     return book_service.create_book(book, db)
 
 
-
-
-
 @router.delete("/{book_id}", status_code=204)
 def delete_book(book_id: int, db: Session = Depends(get_db)):
-    book_service.remove_book(book_id, db)
+    book = book_service.remove_book(book_id, db)
+    if not book:
+        raise HTTPException(status_code=404, detail="Book not found")
     return Response(status_code=204)
