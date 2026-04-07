@@ -1,2 +1,21 @@
 __pycache__/
-*.pyc
+*.pyc# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+.venv/
+venv/
+env/
+ENV/
+
+# PyCharm
+.idea/
+*.iml
+
+# Testing
+.pytest_cache/
+
+# Environment variables
+.env
